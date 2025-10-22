@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loading Company Data...</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+    <div class="bg-white p-8 rounded-lg shadow-xl max-w-2xl w-full">
+        <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center" id="share-entity-name">Loading Company Data...</h1>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Max Shares Outstanding -->
+            <div class="bg-green-50 p-6 rounded-lg border border-green-200">
+                <h2 class="text-xl font-semibold text-green-700 mb-3">Highest Shares Outstanding</h2>
+                <p class="text-gray-700">
+                    <span class="font-bold">Value:</span> <span id="share-max-value" class="text-2xl font-mono">...</span> shares
+                </p>
+                <p class="text-gray-600">
+                    <span class="font-bold">Fiscal Year:</span> <span id="share-max-fy" class="font-mono">...</span>
+                </p>
+            </div>
+            
+            <!-- Min Shares Outstanding -->
+            <div class="bg-red-50 p-6 rounded-lg border border-red-200">
+                <h2 class="text-xl font-semibold text-red-700 mb-3">Lowest Shares Outstanding</h2>
+                <p class="text-gray-700">
+                    <span class="font-bold">Value:</span> <span id="share-min-value" class="text-2xl font-mono">...</span> shares
+                </p>
+                <p class="text-gray-600">
+                    <span class="font-bold">Fiscal Year:</span> <span id="share-min-fy" class="font-mono">...</span>
+                </p>
+            </div>
+        </div>
+
+        <div class="mt-8 text-center text-gray-500 text-sm">
+            <p>Data provided by the U.S. Securities and Exchange Commission (SEC).</p>
+            <p>View raw data: <a href="uid.txt" class="text-blue-500 hover:underline">uid.txt</a></p>
+        </div>
+    </div>
+
+    <script>
+        const SEC_API_BASE_URL = "https://data.sec.gov/api/xbrl/companyconcept/";
+        // Use a generic CORS proxy to bypass browser same-origin policy.
+        // For production, consider a dedicated backend proxy with proper User-Agent handling.
+        const CORS_PROXY = "https://api.allorigins.win/raw?url="; 
+
+        // Function to fetch company data from SEC API
+        async function fetchCompanyData(cik) {
+            const fullUrl = `${SEC_API_BASE_URL}CIK${cik}/dei/EntityCommonStockSharesOutstanding.json`;
+            const proxyUrl = `${CORS_PROXY}${encodeURIComponent(fullUrl)}`;
+
+            try {
+                // Note: User-Agent header cannot be set directly by browser's fetch API for security reasons.
+                // A proxy server (like a custom backend) is needed to properly set this header per SEC guidance.
+                const response = await fetch(proxyUrl, {
+                    headers: {
+                        // 'User-Agent': 'CardinalHealthApp/1.0 your_email@example.com' // This header will be stripped by browser/proxy
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+
+                const entityName = data.entityName;
+                const shares = data.units.shares;
+
+                // Filter for fy > "2020" and numeric val
+                const filteredShares = shares.filter(item => 
+                    parseInt(item.fy) > 2020 && 
+                    typeof item.val === 'number'
+                );
+
+                if (filteredShares.length === 0) {
+                    throw new Error("No relevant shares outstanding data found for the specified criteria.");
+                }
+
+                // Find max and min values
+                let max = filteredShares[0];
+                let min = filteredShares[0];
+
+                for (const item of filteredShares) {
+                    if (item.val > max.val) {
+                        max = item;
+                    }
+                    if (item.val < min.val) {
+                        min = item;
+                    }
+                }
+
+                return {
+                    entityName: entityName,
+                    max: { val: max.val, fy: max.fy },
+                    min: { val: min.val, fy: min.fy }
+                };
+
+            } catch (error) {
+                console.error("Error fetching or processing company data:", error);
+                return null; // Return null on error
+            }
+        }
+
+        // Function to update DOM elements
+        function updateDOM(data) {
+            if (!data) {
+                document.title = "Error Loading Data";
+                document.getElementById('share-entity-name').textContent = "Error Loading Data";
+                document.getElementById('share-max-value').textContent = "N/A";
+                document.getElementById('share-max-fy').textContent = "N/A";
+                document.getElementById('share-min-value').textContent = "N/A";
+                document.getElementById('share-min-fy').textContent = "N/A";
+                return;
+            }
+
+            document.title = `${data.entityName} - Shares Outstanding`;
+            document.getElementById('share-entity-name').textContent = `${data.entityName} - Shares Outstanding`;
+            document.getElementById('share-max-value').textContent = data.max.val.toLocaleString();
+            document.getElementById('share-max-fy').textContent = data.max.fy;
+            document.getElementById('share-min-value').textContent = data.min.val.toLocaleString();
+            document.getElementById('share-min-fy').textContent = data.min.fy;
+        }
+
+        // Main execution on page load
+        document.addEventListener('DOMContentLoaded', async () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const cik = urlParams.get('CIK') || '0000721371'; // Default to Cardinal Health
+
+            const data = await fetchCompanyData(cik);
+            updateDOM(data);
+        });
+    </script>
+</body>
+</html>
